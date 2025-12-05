@@ -26,6 +26,13 @@ func main() {
 }
 EOF
 
+# create a minimal go.mod so modules-aware `go build` succeeds
+RUN cat > /src/go.mod <<'EOF'
+module validator
+
+go 1.21
+EOF
+
 # Build with cache mounts; optional secret mount for private deps (not required for demo)
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
