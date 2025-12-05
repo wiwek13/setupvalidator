@@ -71,32 +71,55 @@ jobs:
           path: image-ref.txt
 
   trivy-scan:
-    name: Trivy scan (single run)
-    runs-on: ubuntu-latest
+    name: Trivy scan (single run, with --skip-version-check)
     needs: build-and-push
+    runs-on: ubuntu-latest
     env:
       TRIVY_CACHE_DIR: ${{ github.workspace }}/.cache/trivy
+      IMAGE_REF: ${{ inputs.image-ref }}        # passed from caller
     steps:
-      - name: Checkout (for uploading artifacts)
+      - name: Checkout (for artifacts)
         uses: actions/checkout@v6
 
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@0.33.1
-        with:
-          image-ref: ${{ env.IMAGE_REF }}
-          format: 'table'
-          exit-code: '1'
-          ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH,MEDIUM'
-          cache: true
-          scan-type: 'image'
-          output: 'trivy-results.txt'
-        continue-on-error: true
+      - name: Log in to GHCR (for docker pull and Trivy auth)
+        run: |
+          echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+        # require GHCR_PAT secret to be present in calling workflow
 
-      - name: Upload Trivy report
+      - name: Pull image (so Trivy can scan local image)
+        # Pulling ensures the image is available locally for Trivy to inspect.
+        # If the image is large or you prefer remote scanning, you can skip this and
+        # run Trivy against the remote image directly (Trivy also supports that).
+        run: |
+          echo "Pulling image: $IMAGE_REF"
+          docker pull "$IMAGE_REF"
+        continue-on-error: false
+
+      - name: Install Trivy CLI
+        uses: aquasecurity/setup-trivy@v0.2.0
+        with:
+          # optional: set a pinned version like v0.65.0 if you want deterministic installs
+          version: 'latest'
+          cache: true
+
+      - name: Run Trivy vulnerability scanner (with --skip-version-check)
+        id: trivy_run
+        run: |
+          mkdir -p "$TRIVY_CACHE_DIR"
+          # run trivy against the local image; pass --skip-version-check to suppress version notices
+          trivy image --skip-version-check \
+            --cache-dir "$TRIVY_CACHE_DIR" \
+            --format table \
+            --severity CRITICAL,HIGH,MEDIUM \
+            --ignore-unfixed \
+            --exit-code 1 \
+            --output trivy-results.txt \
+            "$IMAGE_REF" || echo "Trivy finished with non-zero exit (captured)."
+
+      - name: Upload Trivy report (always)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: trivy-report-${{ github.run_id }}
           path: trivy-results.txt
+
