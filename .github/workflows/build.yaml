@@ -1,0 +1,27 @@
+name: CI - Build & Push (caller)
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+env:
+  IMAGE_BASE: ghcr.io/${{ github.repository_owner }}/validator
+  IMAGE_TAG: ${{ github.sha }}
+  IMAGE_REF: ghcr.io/${{ github.repository_owner }}/validator:${{ github.sha }}
+
+jobs:
+  call-reusable:
+    uses: ./.github/workflows/reusable.yml
+    with:
+      image-ref: ${{ env.IMAGE_REF }}
+      custom-platform: linux/amd64
+
+    secrets:
+      GHCR_PAT: ${{ secrets.GHCR_PAT }}
+      PRIVATE_GIT: ${{ secrets.PRIVATE_GIT }}

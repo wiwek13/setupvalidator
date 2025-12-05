@@ -1,0 +1,102 @@
+name: Reusable Build & Scan
+
+on:
+  workflow_call:
+    inputs:
+      image-ref:
+        required: true
+        type: string
+      custom-platform:
+        required: false
+        type: string
+    secrets:
+      GHCR_PAT:
+        required: true
+      PRIVATE_GIT:
+        required: false
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+env:
+  IMAGE_REF: ${{ inputs.image-ref }}
+
+jobs:
+  build-and-push:
+    name: Build & push image (SHA tag)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up QEMU (safe no-op for single-arch; helps if enabling multi-arch later)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_PAT }}
+
+      - name: Build & push image (commit-SHA tag)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: ${{ inputs.custom-platform || '' }}
+          tags: |
+            ${{ env.IMAGE_REF }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VALIDATOR_BUILD_TAG=${{ github.sha }}
+          secrets: |
+            PRIVATE_GIT=${{ secrets.PRIVATE_GIT }}
+
+      - name: Write image-ref artifact
+        run: echo "${{ env.IMAGE_REF }}" > image-ref.txt
+
+      - name: Upload image-ref artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-ref
+          path: image-ref.txt
+
+  trivy-scan:
+    name: Trivy scan (single run)
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    env:
+      TRIVY_CACHE_DIR: ${{ github.workspace }}/.cache/trivy
+    steps:
+      - name: Checkout (for uploading artifacts)
+        uses: actions/checkout@v6
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: ${{ env.IMAGE_REF }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          cache: true
+          scan-type: 'image'
+          output: 'trivy-results.txt'
+        continue-on-error: true
+
+      - name: Upload Trivy report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report-${{ github.run_id }}
+          path: trivy-results.txt
