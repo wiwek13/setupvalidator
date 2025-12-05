@@ -17,7 +17,7 @@ env:
 
 jobs:
   call-reusable:
-    uses: ./.github/workflows/reusable.yml
+    uses: ./.github/workflows/docker-build.yaml
     with:
       image-ref: ${{ env.IMAGE_REF }}
       custom-platform: linux/amd64

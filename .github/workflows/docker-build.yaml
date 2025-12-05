@@ -21,7 +21,7 @@ permissions:
   id-token: write
 
 env:
-  IMAGE_REF: ${{ inputs.image-ref }}
+  IMAGE_REF: ${{ inputs['image-ref'] }}
 
 jobs:
   build-and-push:
@@ -51,7 +51,7 @@ jobs:
         with:
           context: .
           push: true
-          platforms: ${{ inputs.custom-platform || '' }}
+          platforms: ${{ inputs['custom-platform'] || '' }}
           tags: |
             ${{ env.IMAGE_REF }}
           cache-from: type=gha
